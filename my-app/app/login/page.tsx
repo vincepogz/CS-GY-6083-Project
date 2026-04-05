@@ -111,7 +111,7 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-4 text-center">
+            <div className="mt-6 text-center space-x-2">
               <button
                 type="button"
                 onClick={() => {
@@ -121,18 +121,17 @@ export default function Login() {
                   setEmail('');
                   setPassword('');
                 }}
-                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                disabled={isLoading}
+                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Forgot Password?
+                Forgot Password
               </button>
-            </div>
-
-            <div className="mt-6 w-full">
+              <span className="text-zinc-400">|</span>
               <Link href="/signup">
                 <button
                   type="button"
                   disabled={isLoading}
-                  className="w-full flex justify-center py-2 px-4 border border-zinc-300 rounded-md shadow-sm text-sm font-medium text-zinc-700 bg-white hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Sign Up
                 </button>
