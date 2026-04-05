@@ -1,8 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { handleSignup } from './actions';
+import { handleInitialSignup, handleCompleteSignup } from './actions';
+
+const securityQuestions = [
+  "What was the name of your first pet?",
+  "What is your mother's maiden name?",
+  "What was the name of your first school?",
+  "What is your favorite book?",
+  "What city were you born in?",
+  "What is your favorite movie?",
+  "What was your childhood nickname?",
+  "What is the name of your favorite teacher?",
+  "What is your favorite food?",
+  "What was the make of your first car?",
+  "What is your favorite color?",
+  "What is the name of the street you grew up on?",
+  "What was your first job?",
+  "What is your favorite sport?",
+  "What is the name of your best friend from childhood?"
+];
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -10,10 +28,32 @@ export default function Signup() {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [pubguid, setPubguid] = useState('');
+  const [question1, setQuestion1] = useState('');
+  const [answer1, setAnswer1] = useState('');
+  const [question2, setQuestion2] = useState('');
+  const [answer2, setAnswer2] = useState('');
   const [showAdditionalFields, setShowAdditionalFields] = useState(false);
+  const [showSecurityQuestions, setShowSecurityQuestions] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (showSecurityQuestions && isClient) {
+      // Generate two random questions only on client side
+      const availableQuestions = [...securityQuestions];
+      const q1 = availableQuestions.splice(Math.floor(Math.random() * availableQuestions.length), 1)[0];
+      const q2 = availableQuestions.splice(Math.floor(Math.random() * availableQuestions.length), 1)[0];
+      setQuestion1(q1);
+      setQuestion2(q2);
+    }
+  }, [showSecurityQuestions, isClient]);
 
   const handleInitialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +98,32 @@ export default function Signup() {
     setIsLoading(true);
 
     try {
-      const result = await handleSignup(email, firstName, lastName, phone, password);
+      const result = await handleInitialSignup(email, firstName, lastName, phone);
+
+      if (!result.success) {
+        setError(result.error || 'Signup failed');
+        setIsLoading(false);
+        return;
+      }
+
+      setPubguid(result.pubguid!);
+      setShowSecurityQuestions(true);
+    } catch (err) {
+      setError('An unexpected error occurred during signup');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSecuritySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+    setIsLoading(true);
+
+    try {
+      const result = await handleCompleteSignup(pubguid, email, password, question1, answer1, question2, answer2);
 
       if (!result.success) {
         setError(result.error || 'Signup failed');
@@ -73,7 +138,10 @@ export default function Signup() {
       setLastName('');
       setPhone('');
       setPassword('');
+      setAnswer1('');
+      setAnswer2('');
       setShowAdditionalFields(false);
+      setShowSecurityQuestions(false);
 
       // Redirect to login after a short delay
       setTimeout(() => {
@@ -112,7 +180,7 @@ export default function Signup() {
           </div>
         )}
 
-        <form onSubmit={showAdditionalFields ? handleFinalSubmit : handleInitialSubmit} className="w-full space-y-4">
+        <form onSubmit={showSecurityQuestions ? handleSecuritySubmit : showAdditionalFields ? handleFinalSubmit : handleInitialSubmit} className="w-full space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Email
@@ -186,6 +254,45 @@ export default function Signup() {
             </>
           )}
 
+          {showSecurityQuestions && (
+            <>
+              <div>
+                <label htmlFor="question1" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Security Question 1
+                </label>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  {question1 || (isClient ? 'Loading question...' : 'Security question will appear here')}
+                </p>
+                <input
+                  type="text"
+                  id="answer1"
+                  value={answer1}
+                  onChange={(e) => setAnswer1(e.target.value)}
+                  required
+                  disabled={!isClient || !question1}
+                  className="mt-1 block w-full px-3 py-2 border border-zinc-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label htmlFor="question2" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Security Question 2
+                </label>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  {question2 || (isClient ? 'Loading question...' : 'Security question will appear here')}
+                </p>
+                <input
+                  type="text"
+                  id="answer2"
+                  value={answer2}
+                  onChange={(e) => setAnswer2(e.target.value)}
+                  required
+                  disabled={!isClient || !question2}
+                  className="mt-1 block w-full px-3 py-2 border border-zinc-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
+            </>
+          )}
+
           <button
             type="submit"
             disabled={isLoading}
@@ -200,7 +307,7 @@ export default function Signup() {
                 Processing...
               </>
             ) : (
-              showAdditionalFields ? 'Complete Sign Up' : 'Sign Up'
+              showSecurityQuestions ? 'Complete Sign Up' : showAdditionalFields ? 'Continue Sign Up' : 'Sign Up'
             )}
           </button>
         </form>

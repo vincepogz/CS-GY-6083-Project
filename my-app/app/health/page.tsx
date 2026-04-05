@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,64 +10,52 @@ interface TableCheck {
   error?: string;
 }
 
+interface HealthResponse {
+  connectionStatus: 'connected' | 'failed';
+  tableChecks?: TableCheck[];
+  message?: string;
+  error?: string;
+}
+
 export default function TestDB() {
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'failed'>('checking');
   const [tableChecks, setTableChecks] = useState<TableCheck[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
-  const tablesToCheck = ['account', 'identity', 'login', 'membership'];
+  const tablesToCheck = ['account', 'identity', 'login', 'membership', 'security'];
 
   useEffect(() => {
     checkConnection();
   }, []);
 
   const checkConnection = async () => {
-    if (!isSupabaseConfigured()) {
-      setConnectionStatus('failed');
-      return;
-    }
-
     try {
-      // Simple query to test connection
-      const { error } = await supabase.from('profiles').select('count').limit(1).single();
+      const response = await fetch('/api/health');
+      const data: HealthResponse = await response.json();
 
-      // We expect this to fail if profiles table doesn't exist, but connection should work
-      setConnectionStatus('connected');
+      setConnectionStatus(data.connectionStatus);
+      if (data.tableChecks) {
+        setTableChecks(data.tableChecks);
+      }
+      if (data.message) {
+        setErrorMessage(data.message);
+      }
+      if (data.error) {
+        setErrorMessage(data.error);
+      }
     } catch (error) {
-      console.error('Connection test failed:', error);
+      console.error('Health check failed:', error);
       setConnectionStatus('failed');
+      setErrorMessage('Failed to check database health');
     }
   };
 
   const checkTables = async () => {
     setIsLoading(true);
-    const results: TableCheck[] = [];
-
-    for (const table of tablesToCheck) {
-      try {
-        // Try to select from the table with limit 1 to check if it exists
-        const { error } = await supabase.from(table).select('*').limit(1);
-
-        if (error) {
-          // Check if it's a "table doesn't exist" error
-          if (error.message.includes('does not exist') || error.code === 'PGRST116') {
-            results.push({ table, exists: false });
-          } else {
-            results.push({ table, exists: false, error: error.message });
-          }
-        } else {
-          results.push({ table, exists: true });
-        }
-      } catch (error) {
-        results.push({
-          table,
-          exists: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }
-
-    setTableChecks(results);
+    // Tables are already checked in the initial connection check
+    // Just refresh the data
+    await checkConnection();
     setIsLoading(false);
   };
 
@@ -89,10 +76,13 @@ export default function TestDB() {
             />
             <span className="text-sm text-zinc-600 dark:text-zinc-400">
               {connectionStatus === 'checking' && 'Checking connection...'}
-              {connectionStatus === 'connected' && 'Connected to Supabase'}
+              {connectionStatus === 'connected' && 'Connected to Neon DB'}
               {connectionStatus === 'failed' && 'Failed to connect'}
             </span>
           </div>
+          {errorMessage && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-2">{errorMessage}</p>
+          )}
         </div>
 
         {/* Table Check Button */}
@@ -102,7 +92,7 @@ export default function TestDB() {
             disabled={isLoading || connectionStatus !== 'connected'}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Checking Tables...' : 'Check Tables'}
+            {isLoading ? 'Checking Tables...' : 'Refresh Table Check'}
           </button>
         </div>
 
@@ -144,6 +134,7 @@ export default function TestDB() {
             <li>• identity</li>
             <li>• login</li>
             <li>• membership</li>
+            <li>• security</li>
           </ul>
         </div>
       </main>

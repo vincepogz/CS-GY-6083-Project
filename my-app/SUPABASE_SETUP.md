@@ -1,83 +1,128 @@
-# Supabase Database Setup
+# Neon Database Setup
 
 ## Prerequisites
-1. Create a Supabase project at https://supabase.com
-2. Get your project URL and anon key from the project settings
+1. Create a Neon account at https://neon.tech
+2. Create a new project and database
+3. Get your database connection string from the Neon dashboard
 
 ## Environment Variables
-Update your `.env.local` file with your Supabase credentials:
+Update your `.env.local` file with your Neon database connection string:
 ```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+DATABASE_URL=postgresql://username:password@hostname/database?sslmode=require
 ```
+
+You can find your connection string in the Neon dashboard under "Connection Details".
 
 ## Database Schema
 
-### Profiles Table
-Create a `profiles` table to store user profile information:
+Create the following tables in your Neon database. You can run these SQL commands in the Neon SQL Editor or any PostgreSQL client:
 
 ```sql
--- Create profiles table
-create table profiles (
-  id uuid references auth.users on delete cascade not null primary key,
-  email text,
-  first_name text,
-  last_name text,
-  phone text,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- Account table
+CREATE TABLE account (
+  identity_pubguid UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fname TEXT,
+  lname TEXT,
+  email TEXT UNIQUE NOT NULL,
+  phone TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Enable Row Level Security (RLS)
-alter table profiles enable row level security;
+-- Identity table
+CREATE TABLE identity (
+  pubguid UUID REFERENCES account(identity_pubguid) ON DELETE CASCADE,
+  prvguid UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  active BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
--- Create policies
-create policy "Users can view own profile"
-  on profiles for select
-  using (auth.uid() = id);
+-- Login table
+CREATE TABLE login (
+  uname TEXT PRIMARY KEY,
+  pword TEXT NOT NULL,
+  identity_prvguid UUID REFERENCES identity(prvguid) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-create policy "Users can update own profile"
-  on profiles for update
-  using (auth.uid() = id);
+-- Membership table (if needed)
+CREATE TABLE membership (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_pubguid UUID REFERENCES account(identity_pubguid),
+  role TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-create policy "Users can insert own profile"
-  on profiles for insert
-  with check (auth.uid() = id);
+-- Security table (for security questions)
+CREATE TABLE security (
+  pubguid UUID PRIMARY KEY REFERENCES account(identity_pubguid) ON DELETE CASCADE,
+  q1 TEXT NOT NULL,  -- JSON string containing questions and hashed answers
+  q2 TEXT,           -- Not used (set to null)
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
--- Create function to handle new user signup
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, email, first_name, last_name, phone)
-  values (new.id, new.email, new.raw_user_meta_data->>'first_name', new.raw_user_meta_data->>'last_name', new.raw_user_meta_data->>'phone');
-  return new;
-end;
-$$ language plpgsql security definer;
-
--- Create trigger to automatically create profile on signup
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+-- Example JSON structure stored in q1:
+-- {
+--   "questions": [
+--     {
+--       "question": "What was the name of your first pet?",
+--       "answer": "hashed_answer_with_pubguid_salt"
+--     },
+--     {
+--       "question": "What city were you born in?",
+--       "answer": "hashed_answer_with_pubguid_salt"
+--     }
+--   ]
+-- }
 ```
-
-## Authentication Settings
-
-In your Supabase dashboard:
-1. Go to Authentication > Settings
-2. Configure your site URL and redirect URLs
-3. Enable email confirmations if desired
-4. Set up SMTP settings for email delivery
 
 ## Testing
 
-1. Start your development server: `npm run dev`
-2. Navigate to `/signup` to test user registration
-3. Navigate to `/login` to test user authentication
-4. Check your Supabase dashboard to see new users and profiles
+1. Install dependencies: `npm install`
+2. Start your development server: `npm run dev`
+3. Navigate to `/health` to test database connection and table existence
+4. Navigate to `/signup` to test user registration with security questions
+5. Navigate to `/login` to test user authentication
+
+## Troubleshooting
+
+If you get database errors:
+1. Check that all tables exist in your Neon database
+2. Verify the table column names match the schema above
+3. Ensure your DATABASE_URL is correct and accessible
+4. Check the browser console and server logs for detailed error messages
+
+## Migration from Supabase
+
+If you're migrating from Supabase:
+1. Export your data from Supabase
+2. Create the tables in Neon using the schema above
+3. Import your data (you may need to adjust the data structure)
+4. Update your environment variables
+5. Test thoroughly
 
 ## Next Steps
 
+- Review and adjust database indexes for performance
 - Add password reset functionality
-- Implement email verification flow
-- Add user profile management
-- Set up additional database tables as needed for your application
+- Implement account recovery using security questions
+- Add user profile management features
+
+1. Start your development server: `npm run dev`
+2. Navigate to `/health` to test database connection and table existence
+3. Navigate to `/signup` to test user registration with security questions
+4. Navigate to `/login` to test user authentication
+
+## Troubleshooting
+
+If you get database errors:
+1. Check that all tables exist in your Supabase database
+2. Verify the table column names match the schema above
+3. Ensure Row Level Security policies allow the operations (or disable RLS for testing)
+4. Check the browser console and server logs for detailed error messages
+
+## Next Steps
+
+- Review and adjust Row Level Security policies for production
+- Add password reset functionality
+- Implement account recovery using security questions
+- Add user profile management features
