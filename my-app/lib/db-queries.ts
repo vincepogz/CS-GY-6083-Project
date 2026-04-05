@@ -152,3 +152,66 @@ export async function completeSignup(
     throw error
   }
 }
+
+/**
+ * Authenticate user login:
+ * 1. Check if email exists in account table
+ * 2. Get identity_pubguid from account table
+ * 3. Find active identity record and get prvguid
+ * 4. Generate SHA256 hash using password + prvguid as salt
+ * 5. Verify hash matches login table pword and email matches
+ */
+export async function authenticateUser(email: string, password: string): Promise<boolean> {
+  try {
+    // Step 1: Check if email exists in account table and get identity_pubguid
+    const { data: accountData, error: accountError } = await supabase
+      .from('account')
+      .select('identity_pubguid')
+      .eq('email', email)
+      .single()
+
+    if (accountError || !accountData) {
+      throw new Error('Invalid Username/Password')
+    }
+
+    const pubguid = accountData.identity_pubguid
+
+    // Step 2: Find active identity record and get prvguid
+    const { data: identityData, error: identityError } = await supabase
+      .from('identity')
+      .select('prvguid')
+      .eq('pubguid', pubguid)
+      .eq('active', true)
+      .single()
+
+    if (identityError || !identityData) {
+      throw new Error('Invalid Username/Password')
+    }
+
+    const prvguid = identityData.prvguid
+
+    // Step 3: Generate SHA256 hash using password + prvguid as salt
+    const hash = createHash('sha256')
+    hash.update(password + prvguid)
+    const hashedPassword = hash.digest('hex')
+
+    // Step 4: Check if hash matches login table pword and email matches
+    const { data: loginData, error: loginError } = await supabase
+      .from('login')
+      .select('pword')
+      .eq('uname', email)
+      .eq('pword', hashedPassword)
+      .single()
+
+    if (loginError || !loginData) {
+      throw new Error('Invalid Username/Password')
+    }
+
+    return true
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid Username/Password') {
+      throw error
+    }
+    throw new Error(`Authentication failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
