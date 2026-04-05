@@ -1,14 +1,17 @@
-import { createClient } from '@supabase/supabase-js'
+import { Pool } from 'pg'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
+const connectionString = process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/dbname'
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const pool = new Pool({
+  connectionString,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+})
 
-// Helper function to check if Supabase is properly configured
-export const isSupabaseConfigured = () => {
-  return process.env.NEXT_PUBLIC_SUPABASE_URL &&
-         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-         !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder') &&
-         !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes('placeholder')
+// Helper function to check if database is properly configured
+export const isDatabaseConfigured = () => {
+  return process.env.DATABASE_URL &&
+         !process.env.DATABASE_URL.includes('placeholder')
 }
+
+// For backward compatibility - you might want to keep this for now
+export const supabase = null
