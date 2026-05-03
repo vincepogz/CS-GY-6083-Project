@@ -329,8 +329,8 @@ export async function createSecurity(
     }
 
     await pool.query(
-      'INSERT INTO security (pubguid, q1, q2) VALUES ($1, $2, $3)',
-      [pubguid, JSON.stringify(securityData), null]
+      'INSERT INTO security (pubguid, q1) VALUES ($1, $2)',
+      [pubguid, JSON.stringify(securityData)]
     )
   } catch (error) {
     throw new Error(`Failed to create security entry: ${error instanceof Error ? error.message : String(error)}`)
