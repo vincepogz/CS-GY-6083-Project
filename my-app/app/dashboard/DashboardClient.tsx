@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import type { MembershipRow, UserData } from '@/lib/db-queries'
+import { useState, useEffect } from 'react'
+import type { MembershipRow, UserData, PayableRow } from '@/lib/db-queries'
 
 interface DashboardClientProps {
   user: UserData
@@ -26,10 +26,27 @@ export default function DashboardClient({ user, memberships: initialMemberships 
   const [city, setCity] = useState(user.demographics.city || '')
   const [stateValue, setStateValue] = useState(user.demographics.state || '')
   const [zip, setZip] = useState(user.demographics.zip || '')
+  const [isEditing, setIsEditing] = useState(false)
+  const [cards, setCards] = useState<PayableRow[]>([])
+  const [newCardData, setNewCardData] = useState('')
+
+  useEffect(() => {
+    async function fetchCards() {
+      try {
+        const response = await fetch('/api/dashboard/payment')
+        const data = await response.json()
+        if (data.success) {
+          setCards(data.cards)
+        }
+      } catch (error) {
+        console.error('Failed to fetch cards:', error)
+      }
+    }
+    fetchCards()
+  }, [])
 
   const totalFee = memberships.reduce((sum, membership) => sum + membership.fee, 0)
   const totalBalance = memberships.reduce((sum, membership) => sum + membership.balance, 0)
-  const totalDue = memberships.reduce((sum, membership) => sum + membership.due, 0)
   const hasMembership = memberships.length > 0
 
   async function updateMemberships(response: Response) {
@@ -105,6 +122,53 @@ export default function DashboardClient({ user, memberships: initialMemberships 
 
       setUserData(data.user)
       setStatus('Profile updated successfully.')
+      setIsEditing(false)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      window.location.href = '/login'
+    } catch (error) {
+      setStatus('Failed to logout')
+    }
+  }
+
+  function handleCancelEdit() {
+    setFname(userData.fname)
+    setLname(userData.lname)
+    setPhone(userData.phone || '')
+    setStreet(userData.demographics.street || '')
+    setCity(userData.demographics.city || '')
+    setStateValue(userData.demographics.state || '')
+    setZip(userData.demographics.zip || '')
+    setIsEditing(false)
+  }
+
+  async function handleAddCard() {
+    if (!newCardData) return
+
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/dashboard/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardData: newCardData }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setCards(data.cards)
+        setNewCardData('')
+        setStatus('Card added successfully.')
+      } else {
+        throw new Error(data.error)
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error))
     } finally {
@@ -114,6 +178,16 @@ export default function DashboardClient({ user, memberships: initialMemberships 
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+        <button
+          onClick={handleLogout}
+          className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+        >
+          Logout
+        </button>
+      </div>
+
       {status && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 shadow-sm">
           {status}
@@ -122,11 +196,56 @@ export default function DashboardClient({ user, memberships: initialMemberships 
 
       <div className="grid gap-6 xl:grid-cols-[minmax(240px,280px)_minmax(320px,1fr)_minmax(240px,280px)]">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">User Info</h2>
-          <div className="mt-4 space-y-3 text-sm text-slate-700">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-slate-900">User Info</h2>
+            {!isEditing ? (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="rounded-lg bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600"
+              >
+                Edit
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleUpdateProfile}
+                  disabled={isProcessing}
+                  className="rounded-lg bg-green-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-green-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="rounded-lg bg-gray-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="space-y-3 text-sm text-slate-700">
             <div>
               <p className="font-medium text-slate-900">Name</p>
-              <p>{userData.fname} {userData.lname}</p>
+              {isEditing ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={fname}
+                    onChange={(e) => setFname(e.target.value)}
+                    className="flex-1 rounded border px-2 py-1"
+                    placeholder="First Name"
+                  />
+                  <input
+                    type="text"
+                    value={lname}
+                    onChange={(e) => setLname(e.target.value)}
+                    className="flex-1 rounded border px-2 py-1"
+                    placeholder="Last Name"
+                  />
+                </div>
+              ) : (
+                <p>{userData.fname} {userData.lname}</p>
+              )}
             </div>
             <div>
               <p className="font-medium text-slate-900">Email</p>
@@ -134,19 +253,61 @@ export default function DashboardClient({ user, memberships: initialMemberships 
             </div>
             <div>
               <p className="font-medium text-slate-900">Phone</p>
-              <p>{userData.phone || 'Not provided'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">Identity</p>
-              <p className="break-all">{userData.identityPubguid}</p>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded border px-2 py-1"
+                  placeholder="Phone"
+                />
+              ) : (
+                <p>{userData.phone || 'Not provided'}</p>
+              )}
             </div>
             <div>
               <p className="font-medium text-slate-900">Address</p>
-              <p>{userData.demographics.street || 'Street not set'}</p>
-              <p>{userData.demographics.city || 'City not set'}, {userData.demographics.state || 'State not set'} {userData.demographics.zip || ''}</p>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={street}
+                    onChange={(e) => setStreet(e.target.value)}
+                    className="w-full rounded border px-2 py-1"
+                    placeholder="Street"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      className="flex-1 rounded border px-2 py-1"
+                      placeholder="City"
+                    />
+                    <input
+                      type="text"
+                      value={stateValue}
+                      onChange={(e) => setStateValue(e.target.value)}
+                      className="w-16 rounded border px-2 py-1"
+                      placeholder="State"
+                    />
+                    <input
+                      type="text"
+                      value={zip}
+                      onChange={(e) => setZip(e.target.value)}
+                      className="w-20 rounded border px-2 py-1"
+                      placeholder="Zip"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p>{userData.demographics.street || 'Street not set'}</p>
+                  <p>{userData.demographics.city || 'City not set'}, {userData.demographics.state || 'State not set'} {userData.demographics.zip || ''}</p>
+                </div>
+              )}
             </div>
           </div>
-
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -166,7 +327,7 @@ export default function DashboardClient({ user, memberships: initialMemberships 
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{membership.type}</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          Fee: ${membership.fee.toFixed(2)} · Balance: ${membership.balance.toFixed(2)} · Due: ${membership.due.toFixed(2)}
+                          Fee: ${membership.fee.toFixed(2)} · Balance: ${membership.balance.toFixed(2)} · Due: {membership.due || 'N/A'}
                         </p>
                       </div>
                       <button
@@ -211,8 +372,41 @@ export default function DashboardClient({ user, memberships: initialMemberships 
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Balance</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Billing Info</h2>
           <div className="mt-4 space-y-4 text-sm text-slate-700">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Payment Options</p>
+              {cards.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  {cards.map((card, index) => (
+                    <div key={index} className="flex items-center justify-between rounded-lg border bg-white p-2">
+                      <span>Card ending in ****{card.card_info.hash.slice(-4)}</span>
+                      {card.card_primary && <span className="text-xs text-green-600 font-medium">Primary</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2">
+                  <p className="text-slate-600">No payment options added.</p>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      value={newCardData}
+                      onChange={(e) => setNewCardData(e.target.value)}
+                      className="flex-1 rounded border px-2 py-1 text-xs"
+                      placeholder="Enter card data"
+                    />
+                    <button
+                      onClick={handleAddCard}
+                      disabled={isProcessing || !newCardData}
+                      className="rounded bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-60"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-medium text-slate-900">Total monthly fee</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">${totalFee.toFixed(2)}</p>
@@ -222,12 +416,8 @@ export default function DashboardClient({ user, memberships: initialMemberships 
               <p className="mt-2 text-3xl font-semibold text-slate-900">${totalBalance.toFixed(2)}</p>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Total due</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-900">${totalDue.toFixed(2)}</p>
-            </div>
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Payment options</p>
-              <p className="mt-2 text-slate-600">Use your dashboard membership actions to manage the current plan.</p>
+              <p className="text-sm font-medium text-slate-900">Total memberships</p>
+              <p className="mt-2 text-3xl font-semibold text-slate-900">{memberships.length}</p>
             </div>
           </div>
         </section>

@@ -36,6 +36,14 @@ CREATE TABLE identity (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TABLE demographics (
+  pubguid UUID REFERENCES account(identity_pubguid) ON DELETE CASCADE,
+  Street VARCHAR(20) NOT NULL,
+  City VARCHAR(20) NOT NULL,
+  State VARCHAR(2) NOT NULL,
+  Zip VARCHAR(5) NOT NULL
+);
+
 -- Login table
 CREATE TABLE login (
   uname TEXT PRIMARY KEY,
@@ -44,12 +52,22 @@ CREATE TABLE login (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Membership table (if needed)
+-- Membership table
 CREATE TABLE membership (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_pubguid UUID REFERENCES account(identity_pubguid),
-  role TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  mem_id INTEGER PRIMARY KEY,
+  identity_pubguid UUID REFERENCES account(identity_pubguid) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  fee NUMERIC,
+  balance NUMERIC,
+  due DATE
+);
+
+-- Payable table for payment options
+CREATE TABLE payable (
+  mem_id INTEGER PRIMARY KEY REFERENCES membership(mem_id) ON DELETE CASCADE,
+  card_primary BOOLEAN DEFAULT FALSE,
+  card_info JSONB NOT NULL,
+  active BOOLEAN DEFAULT TRUE
 );
 
 -- Security table (for security questions)
