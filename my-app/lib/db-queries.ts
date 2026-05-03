@@ -23,10 +23,10 @@ export async function checkEmailExists(email: string): Promise<boolean> {
 }
 
 export interface Demographics {
-  street: string | null
-  city: string | null
-  state: string | null
-  zip: string | null
+  street: string
+  city: string
+  state: string
+  zip: string
 }
 
 export interface UserData {
@@ -72,10 +72,10 @@ export async function getUsersByEmail(email: string): Promise<UserData[]> {
         active: row.active,
         loginExists: row.login_exists,
         demographics: {
-          street: row.street || null,
-          city: row.city || null,
-          state: row.state || null,
-          zip: row.zip || null,
+          street: row.street,
+          city: row.city,
+          state: row.state,
+          zip: row.zip,
         },
         securityQuestions,
       }
@@ -140,10 +140,10 @@ export async function updateUserByPubguid(
       active: row.active,
       loginExists: row.login_exists,
       demographics: {
-        street: row.street || null,
-        city: row.city || null,
-        state: row.state || null,
-        zip: row.zip || null,
+        street: row.street,
+        city: row.city,
+        state: row.state,
+        zip: row.zip,
       },
       securityQuestions,
     }
@@ -162,13 +162,13 @@ export async function upsertDemographicsByPubguid(
   try {
     const result = await pool.query(
       `INSERT INTO demographics (pubguid, street, city, state, zip)
-       VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''))
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (pubguid)
        DO UPDATE SET
-         street = COALESCE(NULLIF($2, ''), demographics.street),
-         city = COALESCE(NULLIF($3, ''), demographics.city),
-         state = COALESCE(NULLIF($4, ''), demographics.state),
-         zip = COALESCE(NULLIF($5, ''), demographics.zip)
+         street = $2,
+         city = $3,
+         state = $4,
+         zip = $5
        RETURNING street, city, state, zip`,
       [identityPubguid, street, city, state, zip]
     )
@@ -179,10 +179,10 @@ export async function upsertDemographicsByPubguid(
     }
 
     return {
-      street: row.street || null,
-      city: row.city || null,
-      state: row.state || null,
-      zip: row.zip || null,
+      street: row.street,
+      city: row.city,
+      state: row.state,
+      zip: row.zip,
     }
   } catch (error) {
     throw new Error(`Failed to upsert demographics: ${error instanceof Error ? error.message : String(error)}`)
@@ -607,7 +607,7 @@ export interface MembershipRow {
   type: string
   fee: number
   balance: number
-  due: number
+  due: string | null
 }
 
 const membershipFees: Record<string, number> = {
@@ -631,21 +631,17 @@ function generateMembershipId(): number {
 export async function getMembershipsByUserPubguid(userPubguid: string): Promise<MembershipRow[]> {
   try {
     const result = await pool.query(
-      'SELECT mem_id, identity_pubguid, type FROM membership WHERE identity_pubguid = $1',
+      'SELECT mem_id, identity_pubguid, type, fee, balance, due FROM membership WHERE identity_pubguid = $1',
       [userPubguid]
     )
 
-    return result.rows.map((row) => {
-      const membershipType = row.type || 'Free'
-      const fee = membershipFees[membershipType] ?? 0
-      return {
-        mem_id: row.mem_id,
-        type: membershipType,
-        fee,
-        balance: 0,
-        due: 0,
-      }
-    })
+    return result.rows.map((row) => ({
+      mem_id: row.mem_id,
+      type: row.type,
+      fee: parseFloat(row.fee) || 0,
+      balance: parseFloat(row.balance) || 0,
+      due: row.due,
+    }))
   } catch (error) {
     throw new Error(`Failed to fetch memberships: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -664,9 +660,10 @@ export async function createMembership(userPubguid: string, membershipType: stri
 
     while (attempts < 5) {
       try {
+        const fee = membershipFees[normalizedType]
         const result = await pool.query(
-          'INSERT INTO membership (mem_id, identity_pubguid, type) VALUES ($1, $2, $3) RETURNING mem_id',
-          [mem_id, userPubguid, normalizedType]
+          'INSERT INTO membership (mem_id, identity_pubguid, type, fee, balance, due) VALUES ($1, $2, $3, $4, 0, NULL) RETURNING mem_id',
+          [mem_id, userPubguid, normalizedType, fee]
         )
 
         const returnedId = result.rows[0]?.mem_id
@@ -677,9 +674,9 @@ export async function createMembership(userPubguid: string, membershipType: stri
         return {
           mem_id: returnedId,
           type: normalizedType,
-          fee: membershipFees[normalizedType],
+          fee,
           balance: 0,
-          due: 0,
+          due: null,
         }
       } catch (error) {
         if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
@@ -709,5 +706,67 @@ export async function removeMembershipByMemId(memId: number, userPubguid: string
     }
   } catch (error) {
     throw new Error(`Failed to remove membership: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export interface PayableRow {
+  mem_id: number
+  card_primary: boolean
+  card_info: any
+  active: boolean
+}
+
+export async function getPrivGuidByPubGuid(pubguid: string): Promise<string> {
+  try {
+    const result = await pool.query(
+      'SELECT prvguid FROM identity WHERE pubguid = $1',
+      [pubguid]
+    )
+
+    if (result.rows.length === 0) {
+      throw new Error('Identity not found')
+    }
+
+    return result.rows[0].prvguid
+  } catch (error) {
+    throw new Error(`Failed to get priv_guid: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function getPayablesByMemId(memId: number): Promise<PayableRow[]> {
+  try {
+    const result = await pool.query(
+      'SELECT mem_id, card_primary, card_info, active FROM payable WHERE mem_id = $1 AND active = true',
+      [memId]
+    )
+
+    return result.rows.map((row) => ({
+      mem_id: row.mem_id,
+      card_primary: row.card_primary,
+      card_info: typeof row.card_info === 'string' ? JSON.parse(row.card_info) : row.card_info,
+      active: row.active,
+    }))
+  } catch (error) {
+    throw new Error(`Failed to fetch payables: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function addPayable(memId: number, cardData: string, pubguid: string): Promise<void> {
+  try {
+    const prvguid = await getPrivGuidByPubGuid(pubguid)
+    const hash = createHash('sha256')
+    hash.update(cardData + prvguid)
+    const hashedCard = hash.digest('hex')
+    const cardInfo = JSON.stringify({ hash: hashedCard })
+
+    await pool.query(
+      `INSERT INTO payable (mem_id, card_primary, card_info, active)
+       VALUES ($1, true, $2, true)
+       ON CONFLICT (mem_id)
+       DO UPDATE SET card_info = $2`,
+      [memId, cardInfo]
+    )
+  } catch (error) {
+    throw new Error(`Failed to add payable: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
