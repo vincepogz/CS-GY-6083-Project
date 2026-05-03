@@ -1,5 +1,5 @@
 import { pool } from './supabase'
-import { createHash } from 'crypto'
+import { createHash, randomInt } from 'crypto'
 
 /**
  * Check if an email already exists in the account table
@@ -22,6 +22,13 @@ export async function checkEmailExists(email: string): Promise<boolean> {
   }
 }
 
+export interface Demographics {
+  street: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+}
+
 export interface UserData {
   fname: string
   lname: string
@@ -30,6 +37,7 @@ export interface UserData {
   identityPubguid: string
   active: boolean
   loginExists: boolean
+  demographics: Demographics
   securityQuestions: Array<{ question: string }>
 }
 
@@ -41,6 +49,7 @@ export async function getUsersByEmail(email: string): Promise<UserData[]> {
        LEFT JOIN identity i ON a.identity_pubguid = i.pubguid
        LEFT JOIN login l ON l.uname = a.email
        LEFT JOIN security s ON s.pubguid = a.identity_pubguid
+       LEFT JOIN demographics d ON d.pubguid = a.identity_pubguid
        WHERE a.email = $1
        ORDER BY i.active DESC, a.identity_pubguid`,
       [email]
@@ -62,6 +71,12 @@ export async function getUsersByEmail(email: string): Promise<UserData[]> {
         identityPubguid: row.identity_pubguid,
         active: row.active,
         loginExists: row.login_exists,
+        demographics: {
+          street: row.street || null,
+          city: row.city || null,
+          state: row.state || null,
+          zip: row.zip || null,
+        },
         securityQuestions,
       }
     })
@@ -97,11 +112,13 @@ export async function updateUserByPubguid(
     }
 
     const updated = await pool.query(
-      `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1
+      `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1,
+              d.street, d.city, d.state, d.zip
        FROM account a
        LEFT JOIN identity i ON a.identity_pubguid = i.pubguid
        LEFT JOIN login l ON l.uname = a.email
        LEFT JOIN security s ON s.pubguid = a.identity_pubguid
+       LEFT JOIN demographics d ON d.pubguid = a.identity_pubguid
        WHERE a.identity_pubguid = $1`,
       [identityPubguid]
     )
@@ -122,10 +139,53 @@ export async function updateUserByPubguid(
       identityPubguid: row.identity_pubguid,
       active: row.active,
       loginExists: row.login_exists,
+      demographics: {
+        street: row.street || null,
+        city: row.city || null,
+        state: row.state || null,
+        zip: row.zip || null,
+      },
       securityQuestions,
     }
   } catch (error) {
     throw new Error(`Failed to update user data: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function upsertDemographicsByPubguid(
+  identityPubguid: string,
+  street: string,
+  city: string,
+  state: string,
+  zip: string,
+): Promise<Demographics> {
+  try {
+    const result = await pool.query(
+      `INSERT INTO demographics (pubguid, street, city, state, zip)
+       VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''))
+       ON CONFLICT (pubguid)
+       DO UPDATE SET
+         street = COALESCE(NULLIF($2, ''), demographics.street),
+         city = COALESCE(NULLIF($3, ''), demographics.city),
+         state = COALESCE(NULLIF($4, ''), demographics.state),
+         zip = COALESCE(NULLIF($5, ''), demographics.zip)
+       RETURNING street, city, state, zip`,
+      [identityPubguid, street, city, state, zip]
+    )
+
+    const row = result.rows[0]
+    if (!row) {
+      throw new Error('Failed to update demographics')
+    }
+
+    return {
+      street: row.street || null,
+      city: row.city || null,
+      state: row.state || null,
+      zip: row.zip || null,
+    }
+  } catch (error) {
+    throw new Error(`Failed to upsert demographics: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -539,5 +599,115 @@ export async function updatePassword(email: string, newPassword: string): Promis
     )
   } catch (error) {
     throw error
+  }
+}
+
+export interface MembershipRow {
+  mem_id: number
+  type: string
+  fee: number
+  balance: number
+  due: number
+}
+
+const membershipFees: Record<string, number> = {
+  Free: 0,
+  Member: 5.99,
+  Premium: 25.99,
+}
+
+function normalizeMembershipType(membershipType: string) {
+  const normalized = membershipType.trim()
+  if (!Object.prototype.hasOwnProperty.call(membershipFees, normalized)) {
+    throw new Error('Invalid membership type')
+  }
+  return normalized
+}
+
+function generateMembershipId(): number {
+  return randomInt(10000000, 100000000)
+}
+
+export async function getMembershipsByUserPubguid(userPubguid: string): Promise<MembershipRow[]> {
+  try {
+    const result = await pool.query(
+      'SELECT mem_id, identity_pubguid, type FROM membership WHERE identity_pubguid = $1',
+      [userPubguid]
+    )
+
+    return result.rows.map((row) => {
+      const membershipType = row.type || 'Free'
+      const fee = membershipFees[membershipType] ?? 0
+      return {
+        mem_id: row.mem_id,
+        type: membershipType,
+        fee,
+        balance: 0,
+        due: 0,
+      }
+    })
+  } catch (error) {
+    throw new Error(`Failed to fetch memberships: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function createMembership(userPubguid: string, membershipType: string): Promise<MembershipRow> {
+  try {
+    const existing = await getMembershipsByUserPubguid(userPubguid)
+    if (existing.length > 0) {
+      throw new Error('A user may only have one membership')
+    }
+
+    const normalizedType = normalizeMembershipType(membershipType)
+    let mem_id = generateMembershipId()
+    let attempts = 0
+
+    while (attempts < 5) {
+      try {
+        const result = await pool.query(
+          'INSERT INTO membership (mem_id, identity_pubguid, type) VALUES ($1, $2, $3) RETURNING mem_id',
+          [mem_id, userPubguid, normalizedType]
+        )
+
+        const returnedId = result.rows[0]?.mem_id
+        if (!returnedId) {
+          throw new Error('Failed to add membership')
+        }
+
+        return {
+          mem_id: returnedId,
+          type: normalizedType,
+          fee: membershipFees[normalizedType],
+          balance: 0,
+          due: 0,
+        }
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
+          mem_id = generateMembershipId()
+          attempts += 1
+          continue
+        }
+        throw error
+      }
+    }
+
+    throw new Error('Failed to generate a unique membership id')
+  } catch (error) {
+    throw new Error(`Failed to create membership: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function removeMembershipByMemId(memId: number, userPubguid: string): Promise<void> {
+  try {
+    const result = await pool.query(
+      'DELETE FROM membership WHERE mem_id = $1 AND identity_pubguid = $2',
+      [memId, userPubguid]
+    )
+
+    if (result.rowCount === 0) {
+      throw new Error('Membership row not found')
+    }
+  } catch (error) {
+    throw new Error(`Failed to remove membership: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
