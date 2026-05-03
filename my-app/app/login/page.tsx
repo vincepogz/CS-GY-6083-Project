@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { handleLogin } from './actions';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -19,23 +18,26 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const result = await handleLogin(email, password);
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-      if (!result.success) {
-        setError(result.error || 'Login failed');
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Login failed');
         setIsLoading(false);
         return;
       }
 
       setSuccessMessage('Login successful! Redirecting...');
-      // Reset form
       setEmail('');
       setPassword('');
 
-      // Redirect to dashboard or home page after a short delay
       setTimeout(() => {
-        window.location.href = '/';
-      }, 1500);
+        window.location.href = '/dashboard';
+      }, 1200);
     } catch (err) {
       setError('An unexpected error occurred during login');
       console.error(err);
