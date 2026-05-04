@@ -1,6 +1,8 @@
 import { pool } from './supabase'
 import { createHash, randomInt } from 'crypto'
 
+export { pool }
+
 /**
  * Check if an email already exists in the account table
  */
@@ -755,7 +757,7 @@ export async function getPrivGuidByPubGuid(pubguid: string): Promise<string> {
 export async function getPayablesByMemId(memId: number): Promise<PayableRow[]> {
   try {
     const result = await pool.query(
-      'SELECT id, mem_id, card_primary, card_info, active FROM payable WHERE mem_id = $1 AND active = true',
+      'SELECT id, mem_id, card_primary, card_info, active, nickname FROM payable WHERE mem_id = $1 AND active = true',
       [memId]
     )
 
@@ -768,6 +770,7 @@ export async function getPayablesByMemId(memId: number): Promise<PayableRow[]> {
           card_primary: row.card_primary,
           card_info: cardInfo,
           active: row.active,
+          nickname: row.nickname || 'My Card',
         }
       })
       .filter((card) => !isCardExpired(card.card_info.expiration))
