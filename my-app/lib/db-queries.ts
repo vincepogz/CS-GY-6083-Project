@@ -751,22 +751,24 @@ export async function getPayablesByMemId(memId: number): Promise<PayableRow[]> {
   }
 }
 
-export async function addPayable(memId: number, cardData: string, pubguid: string): Promise<void> {
+export async function addPayable(memId: number, cardNumber: string, securityCode: string, expiration: string, pubguid: string): Promise<void> {
   try {
     const prvguid = await getPrivGuidByPubGuid(pubguid)
     const hash = createHash('sha256')
-    hash.update(cardData + prvguid)
+    hash.update(cardNumber + securityCode + expiration + prvguid)
     const hashedCard = hash.digest('hex')
-    const cardInfo = JSON.stringify({ hash: hashedCard })
+    const last4 = cardNumber.slice(-4)
+    const cardInfo = JSON.stringify({ hash: hashedCard, last4, expiration })
 
     await pool.query(
       `INSERT INTO payable (mem_id, card_primary, card_info, active)
        VALUES ($1, true, $2, true)
        ON CONFLICT (mem_id)
-       DO UPDATE SET card_info = $2`,
+       DO UPDATE SET card_primary = true, card_info = $2, active = true`,
       [memId, cardInfo]
     )
   } catch (error) {
     throw new Error(`Failed to add payable: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
+

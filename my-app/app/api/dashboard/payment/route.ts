@@ -40,10 +40,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const cardData = typeof body.cardData === 'string' ? body.cardData : ''
+    const cardNumber = typeof body.cardNumber === 'string' ? body.cardNumber : ''
+    const securityCode = typeof body.securityCode === 'string' ? body.securityCode : ''
+    const expiration = typeof body.expiration === 'string' ? body.expiration : ''
 
-    if (!cardData) {
-      return NextResponse.json({ success: false, error: 'Card data required' }, { status: 400 })
+    if (!cardNumber || !securityCode || !expiration) {
+      return NextResponse.json({ success: false, error: 'All card fields required' }, { status: 400 })
     }
 
     const memberships = await getMembershipsByUserPubguid(payload.identityPubguid)
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const memId = memberships[0].mem_id
-    await addPayable(memId, cardData, payload.identityPubguid)
+    await addPayable(memId, cardNumber, securityCode, expiration, payload.identityPubguid)
 
     const cards = await getPayablesByMemId(memId)
     return NextResponse.json({ success: true, cards })
