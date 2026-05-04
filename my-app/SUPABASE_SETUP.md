@@ -24,7 +24,7 @@ CREATE TABLE account (
   fname TEXT,
   lname TEXT,
   email TEXT UNIQUE NOT NULL,
-  phone NUMERIC,
+  phone TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -64,10 +64,13 @@ CREATE TABLE membership (
 
 -- Payable table for payment options
 CREATE TABLE payable (
-  mem_id INTEGER PRIMARY KEY REFERENCES membership(mem_id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  mem_id INTEGER NOT NULL REFERENCES membership(mem_id) ON DELETE CASCADE,
   card_primary BOOLEAN DEFAULT FALSE,
   card_info JSONB NOT NULL,
-  active BOOLEAN DEFAULT TRUE
+  active BOOLEAN DEFAULT TRUE,
+  nickname TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Security table (for security questions)
