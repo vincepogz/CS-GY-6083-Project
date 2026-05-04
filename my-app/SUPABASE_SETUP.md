@@ -24,7 +24,7 @@ CREATE TABLE account (
   fname TEXT,
   lname TEXT,
   email TEXT UNIQUE NOT NULL,
-  phone TEXT,
+  phone NUMERIC,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

@@ -28,7 +28,10 @@ export default function DashboardClient({ user, memberships: initialMemberships 
   const [zip, setZip] = useState(user.demographics.zip || '')
   const [isEditing, setIsEditing] = useState(false)
   const [cards, setCards] = useState<PayableRow[]>([])
-  const [newCardData, setNewCardData] = useState('')
+  const [showAddCardPopup, setShowAddCardPopup] = useState(false)
+  const [cardNumber, setCardNumber] = useState('')
+  const [securityCode, setSecurityCode] = useState('')
+  const [expiration, setExpiration] = useState('')
 
   useEffect(() => {
     async function fetchCards() {
@@ -151,20 +154,23 @@ export default function DashboardClient({ user, memberships: initialMemberships 
   }
 
   async function handleAddCard() {
-    if (!newCardData) return
+    if (!cardNumber || !securityCode || !expiration) return
 
     setIsProcessing(true)
     try {
       const response = await fetch('/api/dashboard/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardData: newCardData }),
+        body: JSON.stringify({ cardNumber, securityCode, expiration }),
       })
 
       const data = await response.json()
       if (data.success) {
         setCards(data.cards)
-        setNewCardData('')
+        setCardNumber('')
+        setSecurityCode('')
+        setExpiration('')
+        setShowAddCardPopup(false)
         setStatus('Card added successfully.')
       } else {
         throw new Error(data.error)
@@ -377,35 +383,26 @@ export default function DashboardClient({ user, memberships: initialMemberships 
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-medium text-slate-900">Payment Options</p>
               {cards.length > 0 ? (
-                <div className="mt-2 space-y-2">
-                  {cards.map((card, index) => (
-                    <div key={index} className="flex items-center justify-between rounded-lg border bg-white p-2">
-                      <span>Card ending in ****{card.card_info.hash.slice(-4)}</span>
-                      {card.card_primary && <span className="text-xs text-green-600 font-medium">Primary</span>}
-                    </div>
-                  ))}
+                <div className="mt-2">
+                  <select className="w-full rounded border px-2 py-1">
+                    {cards.map((card) => (
+                      <option key={card.mem_id} value={card.mem_id}>
+                        ****{card.card_info.last4} (exp. {card.card_info.expiration}){card.card_primary ? ' - Primary' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               ) : (
-                <div className="mt-2">
-                  <p className="text-slate-600">No payment options added.</p>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      type="text"
-                      value={newCardData}
-                      onChange={(e) => setNewCardData(e.target.value)}
-                      className="flex-1 rounded border px-2 py-1 text-xs"
-                      placeholder="Enter card data"
-                    />
-                    <button
-                      onClick={handleAddCard}
-                      disabled={isProcessing || !newCardData}
-                      className="rounded bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-60"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
+                <p className="mt-2 text-slate-600">No payment options added.</p>
               )}
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowAddCardPopup(true)}
+                  className="rounded bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600"
+                >
+                  Add New Card
+                </button>
+              </div>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-medium text-slate-900">Total monthly fee</p>
@@ -423,10 +420,51 @@ export default function DashboardClient({ user, memberships: initialMemberships 
         </section>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-700">
-        <p className="font-medium text-slate-900">Need to change account details?</p>
-        <p className="mt-2">Go to your profile or update your member preferences by using the membership action buttons.</p>
-      </div>
+      {showAddCardPopup && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="rounded-lg bg-white p-6 shadow-lg">
+            <h3 className="text-lg font-semibold">Add New Card</h3>
+            <div className="mt-4 space-y-4">
+              <input
+                type="text"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                className="w-full rounded border px-2 py-1"
+                placeholder="Card Number"
+              />
+              <input
+                type="text"
+                value={securityCode}
+                onChange={(e) => setSecurityCode(e.target.value)}
+                className="w-full rounded border px-2 py-1"
+                placeholder="Security Code"
+              />
+              <input
+                type="text"
+                value={expiration}
+                onChange={(e) => setExpiration(e.target.value)}
+                className="w-full rounded border px-2 py-1"
+                placeholder="Expiration (MM/YY)"
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddCardPopup(false)}
+                className="rounded bg-gray-500 px-4 py-2 text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddCard}
+                disabled={isProcessing}
+                className="rounded bg-blue-500 px-4 py-2 text-white disabled:opacity-60"
+              >
+                Add Card
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
