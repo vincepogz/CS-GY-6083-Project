@@ -113,7 +113,7 @@ export async function updateUserByPubguid(
 
     const updated = await pool.query(
       `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1,
-              d.street, d.city, d.state, d.zip
+              d.Street, d.City, d.State, d.Zip
        FROM account a
        LEFT JOIN identity i ON a.identity_pubguid = i.pubguid
        LEFT JOIN login l ON l.uname = a.email
