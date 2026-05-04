@@ -386,8 +386,8 @@ export default function DashboardClient({ user, memberships: initialMemberships 
                 <div className="mt-2">
                   <select className="w-full rounded border px-2 py-1">
                     {cards.map((card) => (
-                      <option key={card.mem_id} value={card.mem_id}>
-                        ****{card.card_info.last4} (exp. {card.card_info.expiration}){card.card_primary ? ' - Primary' : ''}
+                      <option key={card.id} value={card.id}>
+                        ****{card.card_info.last4 || 'XXXX'} (exp. {card.card_info.expiration || 'unknown'}){card.card_primary ? ' - Primary' : ''}
                       </option>
                     ))}
                   </select>
@@ -400,7 +400,7 @@ export default function DashboardClient({ user, memberships: initialMemberships 
                   onClick={() => setShowAddCardPopup(true)}
                   className="rounded bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600"
                 >
-                  Add New Card
+                  Add
                 </button>
               </div>
             </div>

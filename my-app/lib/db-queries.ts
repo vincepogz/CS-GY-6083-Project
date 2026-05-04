@@ -44,7 +44,8 @@ export interface UserData {
 export async function getUsersByEmail(email: string): Promise<UserData[]> {
   try {
     const result = await pool.query(
-      `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1
+      `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1,
+              d.street, d.city, d.state, d.zip
        FROM account a
        LEFT JOIN identity i ON a.identity_pubguid = i.pubguid
        LEFT JOIN login l ON l.uname = a.email
@@ -113,7 +114,7 @@ export async function updateUserByPubguid(
 
     const updated = await pool.query(
       `SELECT a.fname, a.lname, a.email, a.phone, a.identity_pubguid, i.active, l.uname IS NOT NULL AS login_exists, s.q1,
-              d.street, d.city, d.state, d.zip
+              d.Street, d.City, d.State, d.Zip
        FROM account a
        LEFT JOIN identity i ON a.identity_pubguid = i.pubguid
        LEFT JOIN login l ON l.uname = a.email
@@ -140,10 +141,10 @@ export async function updateUserByPubguid(
       active: row.active,
       loginExists: row.login_exists,
       demographics: {
-        street: row.street,
-        city: row.city,
-        state: row.state,
-        zip: row.zip,
+        street: row.street || '',
+        city: row.city || '',
+        state: row.state || '',
+        zip: row.zip || '',
       },
       securityQuestions,
     }
@@ -710,10 +711,27 @@ export async function removeMembershipByMemId(memId: number, userPubguid: string
 }
 
 export interface PayableRow {
+  id: string
   mem_id: number
   card_primary: boolean
   card_info: any
   active: boolean
+}
+
+function isCardExpired(expiration: string): boolean {
+  const [monthPart, yearPart] = (expiration || '').split('/')
+  const month = parseInt(monthPart, 10)
+  let year = parseInt(yearPart, 10)
+  if (!month || !year || month < 1 || month > 12) {
+    return false
+  }
+
+  if (year < 100) {
+    year += 2000
+  }
+
+  const expirationDate = new Date(year, month, 0, 23, 59, 59, 999)
+  return expirationDate < new Date()
 }
 
 export async function getPrivGuidByPubGuid(pubguid: string): Promise<string> {
@@ -736,16 +754,22 @@ export async function getPrivGuidByPubGuid(pubguid: string): Promise<string> {
 export async function getPayablesByMemId(memId: number): Promise<PayableRow[]> {
   try {
     const result = await pool.query(
-      'SELECT mem_id, card_primary, card_info, active FROM payable WHERE mem_id = $1 AND active = true',
+      'SELECT id, mem_id, card_primary, card_info, active FROM payable WHERE mem_id = $1 AND active = true',
       [memId]
     )
 
-    return result.rows.map((row) => ({
-      mem_id: row.mem_id,
-      card_primary: row.card_primary,
-      card_info: typeof row.card_info === 'string' ? JSON.parse(row.card_info) : row.card_info,
-      active: row.active,
-    }))
+    return result.rows
+      .map((row) => {
+        const cardInfo = typeof row.card_info === 'string' ? JSON.parse(row.card_info) : row.card_info
+        return {
+          id: row.id,
+          mem_id: row.mem_id,
+          card_primary: row.card_primary,
+          card_info: cardInfo,
+          active: row.active,
+        }
+      })
+      .filter((card) => !isCardExpired(card.card_info.expiration))
   } catch (error) {
     throw new Error(`Failed to fetch payables: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -760,12 +784,12 @@ export async function addPayable(memId: number, cardNumber: string, securityCode
     const last4 = cardNumber.slice(-4)
     const cardInfo = JSON.stringify({ hash: hashedCard, last4, expiration })
 
+    const existing = await getPayablesByMemId(memId)
+    const isPrimary = existing.length === 0
+
     await pool.query(
-      `INSERT INTO payable (mem_id, card_primary, card_info, active)
-       VALUES ($1, true, $2, true)
-       ON CONFLICT (mem_id)
-       DO UPDATE SET card_primary = true, card_info = $2, active = true`,
-      [memId, cardInfo]
+      'INSERT INTO payable (mem_id, card_primary, card_info, active) VALUES ($1, $2, $3, true)',
+      [memId, isPrimary, cardInfo]
     )
   } catch (error) {
     throw new Error(`Failed to add payable: ${error instanceof Error ? error.message : String(error)}`)
