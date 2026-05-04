@@ -28,7 +28,10 @@ export default function DashboardClient({ user, memberships: initialMemberships 
   const [zip, setZip] = useState(user.demographics.zip || '')
   const [isEditing, setIsEditing] = useState(false)
   const [cards, setCards] = useState<PayableRow[]>([])
-  const [showAddCardPopup, setShowAddCardPopup] = useState(false)
+  const [showSetPaymentPopup, setShowSetPaymentPopup] = useState(false)
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [showAddNewCard, setShowAddNewCard] = useState(false)
+  const [cardNickname, setCardNickname] = useState('')
   const [cardNumber, setCardNumber] = useState('')
   const [securityCode, setSecurityCode] = useState('')
   const [expiration, setExpiration] = useState('')
@@ -161,17 +164,45 @@ export default function DashboardClient({ user, memberships: initialMemberships 
       const response = await fetch('/api/dashboard/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardNumber, securityCode, expiration }),
+        body: JSON.stringify({ cardNumber, securityCode, expiration, nickname: cardNickname || 'My Card' }),
       })
 
       const data = await response.json()
       if (data.success) {
         setCards(data.cards)
+        setCardNickname('')
         setCardNumber('')
         setSecurityCode('')
         setExpiration('')
-        setShowAddCardPopup(false)
+        setShowAddNewCard(false)
         setStatus('Card added successfully.')
+      } else {
+        throw new Error(data.error)
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  async function handleSetPayment() {
+    if (!selectedCardId) return
+
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/dashboard/payment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payableId: selectedCardId }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setCards(data.cards)
+        setShowSetPaymentPopup(false)
+        setSelectedCardId(null)
+        setStatus('Default payment updated successfully.')
       } else {
         throw new Error(data.error)
       }
@@ -381,26 +412,34 @@ export default function DashboardClient({ user, memberships: initialMemberships 
           <h2 className="text-xl font-semibold text-slate-900">Billing Info</h2>
           <div className="mt-4 space-y-4 text-sm text-slate-700">
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Payment Options</p>
+              <p className="text-sm font-medium text-slate-900">Default Payment</p>
               {cards.length > 0 ? (
-                <div className="mt-2">
-                  <select className="w-full rounded border px-2 py-1">
-                    {cards.map((card) => (
-                      <option key={card.id} value={card.id}>
-                        ****{card.card_info.last4 || 'XXXX'} (exp. {card.card_info.expiration || 'unknown'}){card.card_primary ? ' - Primary' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <>
+                  {cards.find((card) => card.card_primary) ? (
+                    <div className="mt-2">
+                      <p className="text-slate-700">
+                        {cards.find((card) => card.card_primary)?.nickname || 'Unnamed'} - ****
+                        {cards.find((card) => card.card_primary)?.card_info.last4 || 'XXXX'} (exp.{' '}
+                        {cards.find((card) => card.card_primary)?.card_info.expiration || 'unknown'})
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-slate-600">No default payment set.</p>
+                  )}
+                </>
               ) : (
-                <p className="mt-2 text-slate-600">No payment options added.</p>
+                <p className="mt-2 text-slate-600">No payment options available.</p>
               )}
               <div className="mt-2">
                 <button
-                  onClick={() => setShowAddCardPopup(true)}
+                  onClick={() => {
+                    setSelectedCardId(null)
+                    setShowAddNewCard(false)
+                    setShowSetPaymentPopup(true)
+                  }}
                   className="rounded bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600"
                 >
-                  Add
+                  Set Payment
                 </button>
               </div>
             </div>
@@ -420,47 +459,123 @@ export default function DashboardClient({ user, memberships: initialMemberships 
         </section>
       </div>
 
-      {showAddCardPopup && (
+      {showSetPaymentPopup && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold">Add New Card</h3>
-            <div className="mt-4 space-y-4">
-              <input
-                type="text"
-                value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value)}
-                className="w-full rounded border px-2 py-1"
-                placeholder="Card Number"
-              />
-              <input
-                type="text"
-                value={securityCode}
-                onChange={(e) => setSecurityCode(e.target.value)}
-                className="w-full rounded border px-2 py-1"
-                placeholder="Security Code"
-              />
-              <input
-                type="text"
-                value={expiration}
-                onChange={(e) => setExpiration(e.target.value)}
-                className="w-full rounded border px-2 py-1"
-                placeholder="Expiration (MM/YY)"
-              />
+          <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
+            <h3 className="text-lg font-semibold">Set Payment Method</h3>
+            <div className="mt-4">
+              {!showAddNewCard ? (
+                <>
+                  {cards.length > 0 ? (
+                    <>
+                      <p className="text-sm text-slate-600 mb-3">Select a payment method:</p>
+                      <div className="space-y-2">
+                        {cards.map((card) => (
+                          <label key={card.id} className="flex items-center p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="payment-method"
+                              value={card.id}
+                              checked={selectedCardId === card.id}
+                              onChange={(e) => setSelectedCardId(e.target.value)}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">
+                              {card.nickname || 'Unnamed'} - ****{card.card_info.last4 || 'XXXX'} (exp.{' '}
+                              {card.card_info.expiration || 'unknown'})
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-slate-600">No payment methods available.</p>
+                  )}
+                  <div className="mt-4">
+                    <button
+                      onClick={() => setShowAddNewCard(true)}
+                      className="w-full rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-300"
+                    >
+                      Add New Card
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-600 mb-3">Enter card details:</p>
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={cardNickname}
+                      onChange={(e) => setCardNickname(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      placeholder="Card Nickname (e.g., My Card)"
+                    />
+                    <input
+                      type="text"
+                      value={cardNumber}
+                      onChange={(e) => setCardNumber(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      placeholder="Card Number"
+                    />
+                    <input
+                      type="text"
+                      value={securityCode}
+                      onChange={(e) => setSecurityCode(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      placeholder="Security Code"
+                    />
+                    <input
+                      type="text"
+                      value={expiration}
+                      onChange={(e) => setExpiration(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      placeholder="Expiration (MM/YY)"
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <button
+                      onClick={() => setShowAddNewCard(false)}
+                      className="w-full rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-300"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
-                onClick={() => setShowAddCardPopup(false)}
-                className="rounded bg-gray-500 px-4 py-2 text-white"
+                onClick={() => {
+                  setShowSetPaymentPopup(false)
+                  setShowAddNewCard(false)
+                  setCardNickname('')
+                  setCardNumber('')
+                  setSecurityCode('')
+                  setExpiration('')
+                  setSelectedCardId(null)
+                }}
+                className="rounded bg-gray-500 px-4 py-2 text-white text-sm"
               >
                 Cancel
               </button>
-              <button
-                onClick={handleAddCard}
-                disabled={isProcessing}
-                className="rounded bg-blue-500 px-4 py-2 text-white disabled:opacity-60"
-              >
-                Add Card
-              </button>
+              {showAddNewCard ? (
+                <button
+                  onClick={handleAddCard}
+                  disabled={isProcessing}
+                  className="rounded bg-blue-500 px-4 py-2 text-white text-sm disabled:opacity-60"
+                >
+                  Add Card
+                </button>
+              ) : (
+                <button
+                  onClick={handleSetPayment}
+                  disabled={isProcessing || !selectedCardId}
+                  className="rounded bg-blue-500 px-4 py-2 text-white text-sm disabled:opacity-60"
+                >
+                  Confirm
+                </button>
+              )}
             </div>
           </div>
         </div>
